@@ -1,25 +1,20 @@
 //#define USE_STDPERIPH_DRIVER
-//#include "stm32f4xx.h"
-//#include <stdio.h>
-//#include "stm32f4_discovery.h"
+#include "stm32f4xx.h"
+#include <stdio.h>
+#include "stm32f4_discovery.h"
 //#include "stm32f4xx_conf.h"
 //#include "stm32f4xx_dma.h"
 //#include "stm32f4xx_gpio.h"
 //#include "stm32f4xx_rcc.h"
 //#include "stm32f4xx_adc.h"
-#include "stm32f4xx.h"
-#include "stm32f4xx_conf.h"
-#include "stm32f4_discovery_audio_codec.h"
-#include "organ.h"
-
 
 #define ADC1_DR_ADDRESS ((uint32_t)0x4001204C)
 
-/*__IO*/// uint16_t ADCConvertedValue = 0;
+/*__IO*/ uint16_t ADCConvertedValue = 0;
 
-//uint8_t buf[18];
+uint8_t buf[18];
 
-uint8_t Drawchars[]=
+uint8_t drawchars[]=
 { 0x1f,0,0,0,0,0,0,0,
   0x1f,0x1f,0,0,0,0,0,0,
   0x1f,0x1f,0x1f,0,0,0,0,0,
@@ -29,7 +24,7 @@ uint8_t Drawchars[]=
   0x1f,0x1f,0x1f,0x1f,0x1f,0x1f,0x1f,0,
   0x1f,0x1f,0x1f,0x1f,0x1f,0x1f,0x1f,0x1f};
 
-uint8_t Barchartcoarse[]=
+uint8_t barchartcoarse[]=
 { 32,32,32,32,
   3,32,32,32,
   7,32,32,32,
@@ -40,7 +35,7 @@ uint8_t Barchartcoarse[]=
   7,7,7,3,
   7,7,7,7};
 
-uint8_t Barchartfine[]=
+uint8_t barchartfine[]=
 { 32,32,32,32,
   0,32,32,32,
   1,32,32,32,
@@ -74,8 +69,8 @@ uint8_t Barchartfine[]=
   7,7,7,5,
   7,7,7,6,
   7,7,7,7};
-/*
-void Init_adc()
+
+void init_adc()
 {
     ADC_InitTypeDef ADC_InitStructure;
     ADC_CommonInitTypeDef ADC_CommonInitStructure;
@@ -136,18 +131,18 @@ void assert_failed(uint8_t* file, uint32_t line)
     while(1)
     {
     }
-}*/
+}
 //Quick hack, approximately 1ms delay
 void ms_delay(int ms)
 {
    while (ms-- > 0) {
-      volatile int x=20000;
+      volatile int x=5971;
       while (x-- > 0)
          __asm("nop");
    }
 }
 
-void Display_command_clock(uint8_t chr)
+void disp_cmd(uint8_t chr)
 {
     GPIOD->ODR &= ~2;
     GPIOD->ODR |= 8;
@@ -157,7 +152,7 @@ void Display_command_clock(uint8_t chr)
     ms_delay(1);
 }
 
-void Display_character_clock(uint8_t chr)
+void disp_char(uint8_t chr)
 {
     GPIOD->ODR |= 2;
     GPIOD->ODR |= 8;
@@ -167,75 +162,54 @@ void Display_character_clock(uint8_t chr)
     ms_delay(1);
 }
 
-void Display_command_no_clock(uint8_t chr)
-{
-    GPIOD->ODR &= ~2;
-    GPIOD->ODR |= 8;
-    GPIOE->ODR = (chr<<7);
-}
-
-void Display_character_no_clock(uint8_t chr)
-{
-    GPIOD->ODR |= 2;
-    GPIOD->ODR |= 8;
-    GPIOE->ODR = (chr<<7);
-}
-
-void Display_data_no_clock(uint16_t data)
-{
-/*    if (0x2 & data)
-        GPIOD->ODR |= 0x2;
-    else
-        GPIOD->ODR &= ~2;*/
-    GPIOD->ODR &= ~2;
-    GPIOD->ODR |= (0x2 & data);
-    GPIOD->ODR |= 8;
-    GPIOE->ODR = (data & 0x7f80);
-}
-
-void Display_clock()
-{
-    GPIOD->ODR &= ~8;
-}
-
-void Init_customchars()
+void init_customchars()
 {
     int32_t i;
-    Display_command_clock(0x40);
+    disp_cmd(0x40);
     for (i=0;i<64;i++)
-        Display_character_clock(Drawchars[i]);
-    Display_command_clock(0x80);  
+        disp_char(drawchars[i]);
+    disp_cmd(0x80);  
 }
 
 
-void Init_hid(void)
+//Flash orange LED at about 1hz
+int main(void)
 {
-    //int16_t x,y;
-
-    //init_adc();
-        
-    //ADC_SoftwareStartConv(ADC1);
-    RCC->AHB1ENR |= RCC_AHB1ENR_GPIODEN | RCC_AHB1ENR_GPIOEEN;
-    __asm("dsb");
-    GPIOD->MODER = 0x04000044;
+    int16_t x,y;
+   // uint8_t chr='A';
+    RCC->AHB1ENR |= RCC_AHB1ENR_GPIODEN | RCC_AHB1ENR_GPIOEEN;  // enable the clock to GPIOD
+    __asm("dsb");                         // stall instruction pipeline, until instruction completes, as
+                                          //    per Errata 2.1.13, "Delay after an RCC peripheral clock enabling"
+    GPIOD->MODER = 0x04000044; //(1 << 26)|(1<<2)|(1<<6)
     GPIOE->MODER = 0x15554000;
 
+    buf[0]=32;
+    buf[1]=32;
+    buf[2]=32;
+    buf[3]=32;
+ 
+    init_adc();
+        
+    ADC_SoftwareStartConv(ADC1);
+
     ms_delay(500); 
-    Display_command_clock(0x38);
+    disp_cmd(0x38);
     ms_delay(4);
-    Display_command_clock(0x38);
-    Display_command_clock(0x38);
-    Display_command_clock(0x8);
-    Display_command_clock(0x1);
-    Display_command_clock(0x6);
-    Display_command_clock(0xc);
-    Init_customchars();
-}
-/*
+    disp_cmd(0x38);
+    disp_cmd(0x38);
+    disp_cmd(0x8);
+    disp_cmd(0x1);
+    disp_cmd(0x6);
+    disp_cmd(0xc);
+      init_customchars(); 
     for (;;) {
         disp_cmd(0x80);
+        //x = ADC_GetConversionValue(ADC1);
+        //chr = (uint8_t) ((x>>4) & 0xff);
         x = ((((ADCConvertedValue>>8)+4)>>3));
         y = ((((ADCConvertedValue>>8)+16)>>5));
+        //x = (ADCConvertedValue>>11);
+        //x=ADCConvertedValue;
        snprintf(buf,18,"%x %x",x,ADCConvertedValue);
        disp_cmd(0x82);
         disp_char(buf[0]);
@@ -248,6 +222,8 @@ void Init_hid(void)
         disp_char(buf[7]);
         disp_char(buf[8]);
         disp_char(buf[9]);
+//        chr = chr<<2;
+//        x &= 0x3f;
 
         disp_cmd(0x80);
         disp_char(barchartfine[x<<2]);
@@ -266,63 +242,19 @@ void Init_hid(void)
         disp_cmd(0xd5);
         disp_char(barchartcoarse[(y<<2)+3]);
  
+        /*for(x=0;x<9;x++)
+        {
+            if (chr>x)
+                disp_char(2);
+            else
+                disp_char(0);
+        }*/
+        
+
        ms_delay(20);
-       GPIOD->ODR ^= (1 << 13);            
-    }
-}*/
-
-void Init_misc()
-{
-    GPIO_InitTypeDef  	GPIO_InitS;
-
-    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOD, ENABLE);
-    RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOA, ENABLE);
-
-    GPIO_InitS.GPIO_Pin = GPIO_Pin_12 | GPIO_Pin_13| GPIO_Pin_14| GPIO_Pin_15;
-    GPIO_InitS.GPIO_Mode = GPIO_Mode_OUT;
-    GPIO_InitS.GPIO_OType = GPIO_OType_PP;
-    GPIO_InitS.GPIO_Speed = GPIO_Speed_100MHz;
-    GPIO_InitS.GPIO_PuPd = GPIO_PuPd_NOPULL;
-    GPIO_Init(GPIOD, &GPIO_InitS);
-
-    GPIO_InitS.GPIO_Pin = GPIO_Pin_0;
-    GPIO_InitS.GPIO_Mode = GPIO_Mode_IN;
-    GPIO_InitS.GPIO_OType = GPIO_OType_PP;
-    GPIO_InitS.GPIO_Speed = GPIO_Speed_100MHz;
-    GPIO_InitS.GPIO_PuPd = GPIO_PuPd_NOPULL;
-    GPIO_Init(GPIOA, &GPIO_InitS);
-}
-
-void EVAL_AUDIO_TransferComplete_CallBack(uint32_t pBuffer, uint32_t Size)
-{
-    GPIO_SetBits(GPIOD, GPIO_Pin_12);
-    Generate_buffer(AUDIO_BUFFER_LENGTH_HALF);
-}
-
-void EVAL_AUDIO_HalfTransfer_CallBack(uint32_t pBuffer, uint32_t Size)
-{
-	GPIO_ResetBits(GPIOD, GPIO_Pin_12);
-	Generate_buffer(0);
-}
-
-uint16_t EVAL_AUDIO_GetSampleCallBack(void)
-{
-    return 0;
-}
-
-uint32_t Codec_TIMEOUT_UserCallback(void)
-{
-    return (0);
-}
-
-void USART3_IRQHandler(void)
-{
-}
-
-void DMA1_Stream1_IRQHandler(void)
-{
-    if (DMA_GetITStatus(DMA1_Stream1, DMA_IT_TCIF1))
-    {
-	DMA_ClearITPendingBit(DMA1_Stream1, DMA_IT_TCIF1);
+       GPIOD->ODR ^= (1 << 13);           // Toggle the pin 
+//        chr++;
+//        if(chr>'F')
+//            chr='A';
     }
 }

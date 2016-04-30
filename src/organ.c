@@ -4,6 +4,9 @@
 #include "stm32f4xx_conf.h"
 
 #include "organ.h"
+#include "io.h"
+
+extern uint8_t Barchartcoarse[];
 
 static int16_t Multiplier[TONEWHEELS]={
     137,149,160,165,175,191,197,209,224,234,
@@ -19,24 +22,56 @@ static int16_t Multiplier[TONEWHEELS]={
 
 //Gains found from net for RT-2 8:0dB 7:-3 6:-6 5:-10 4:-15 3:-20 2:-26 1:-32
 //Use >>10
-static int16_t Drawbar_gain[9]={
+static int32_t Drawbar_gain[9]={
     0,26,51,102,182,324,512,725,1024};
 
 static int16_t Drawbar_harmonic[9]={
     -12,7,0,12,19,24,28,31,36};
 
-static int16_t Tonewheel_gain[TONEWHEELS];
+static int32_t Tonewheel_gain[TONEWHEELS];
+static int32_t Tonewheel_target_gain[TONEWHEELS];
+
 static int16_t Drawbar_setting[9];
+
 static uint16_t drawbarstate,drawbarindex;
 
 extern int16_t audiobuffer[AUDIO_BUFFER_LENGTH];
 
-static int16_t oscillator_x[TONEWHEELS];
-static int16_t oscillator_y[TONEWHEELS];
+static int32_t oscillator_x[TONEWHEELS];
+static int32_t oscillator_y[TONEWHEELS];
+static uint16_t display_buffer[40];
+static uint16_t display_index;
+
+#define EFFECT_BUFFER_LENGTH 8
+
+static int16_t effect_buffer[EFFECT_BUFFER_LENGTH];
+static uint16_t effect_index;
+
+void Update_display_buffer()
+{
+    uint8_t i;
+    for (i=0;i<9;i++)
+    {
+        display_buffer[i+1]=(Barchartcoarse[Drawbar_setting[i]<<2]<<7)+2;
+        display_buffer[i+11]=(Barchartcoarse[(Drawbar_setting[i]<<2)+1]<<7)+2;
+        display_buffer[i+21]=(Barchartcoarse[(Drawbar_setting[i]<<2)+2]<<7)+2;
+        display_buffer[i+31]=(Barchartcoarse[(Drawbar_setting[i]<<2)+3]<<7)+2;
+    }
+}
 
 void Init_organ()
 {
     int i;
+    display_buffer[0]=0x80<<7;
+    display_buffer[10]=0xc0<<7;
+    display_buffer[20]=0x94<<7;
+    display_buffer[30]=0xd4<<7;
+    display_index=0;
+
+    for (i=0;i<EFFECT_BUFFER_LENGTH;i++)
+        effect_buffer[i]=0;
+
+    effect_index =0;
 
     drawbarstate = 0;
     drawbarindex = 0;
@@ -53,12 +88,14 @@ void Init_organ()
     Drawbar_setting[6]=0;
     Drawbar_setting[7]=0;
     Drawbar_setting[8]=0;
+    Update_display_buffer();
         
     for(i=0;i<TONEWHEELS;i++)
     {
         oscillator_x[i]=0; // Tonewheels are synced. Not real situation.
         oscillator_y[i]=1024;
         Tonewheel_gain[i]=0;
+        Tonewheel_target_gain[i]=0;
     }
 }
 
@@ -66,7 +103,7 @@ void Organ_noteon(uint8_t note)
 {
     int16_t tmp,i;
     
-    GPIO_SetBits(GPIOD, GPIO_Pin_15); 
+    //GPIO_SetBits(GPIOD, GPIO_Pin_15); 
    //quick hack to manipulate drawbars. 
     if ((note>11) && (note<21))
     {
@@ -82,6 +119,7 @@ void Organ_noteon(uint8_t note)
             drawbarstate=0;
             GPIO_ResetBits(GPIOD, GPIO_Pin_15);
         }
+    Update_display_buffer();
     }
         //hack ends here
 
@@ -94,16 +132,28 @@ void Organ_noteon(uint8_t note)
                 tmp += 12;
             while (tmp>(TONEWHEELS-1))
                 tmp -= 12;
-            Tonewheel_gain[tmp] += Drawbar_gain[Drawbar_setting[i]];
+            Tonewheel_target_gain[tmp] += Drawbar_gain[Drawbar_setting[i]];
+            Tonewheel_gain[tmp] = Tonewheel_target_gain[tmp];
         }
     }
 }
+
+/*void led_if_target_gains_zero()
+{
+    int i;
+    GPIO_SetBits(GPIOD, GPIO_Pin_13);
+
+    for (i=0;i<TONEWHEELS;i++)
+        if (Tonewheel_target_gain[i]>0)
+            GPIO_ResetBits(GPIOD, GPIO_Pin_13);
+
+}*/
 
 void Organ_noteoff(uint8_t note)
 {
     int16_t tmp,i;
 
-    GPIO_ResetBits(GPIOD, GPIO_Pin_15);
+    //GPIO_ResetBits(GPIOD, GPIO_Pin_15);
     
     if ((note>23) && (note<97))
     {
@@ -114,38 +164,72 @@ void Organ_noteoff(uint8_t note)
                 tmp += 12;
             while (tmp>(TONEWHEELS-1))
                 tmp -= 12;
-            Tonewheel_gain[tmp] -= Drawbar_gain[Drawbar_setting[i]];
-            if (Tonewheel_gain[tmp]<0)
-                Tonewheel_gain[tmp]=0;
+            Tonewheel_target_gain[tmp] -= Drawbar_gain[Drawbar_setting[i]];
+            if (Tonewheel_target_gain[tmp]<0)
+                Tonewheel_target_gain[tmp]=0;
         }
     }
+   // led_if_target_gains_zero();
 }
 
+void Insert_display_data()
+{
+    //Display_character_clock('A');
+    if(display_index&1)
+    {
+        Display_clock();
+    }
+    else
+    {   
+        Display_data_no_clock(display_buffer[display_index>>1]);
+    }
+    display_index++;
+    if (display_index>79)
+        display_index=0;
+}
 
 void Generate_buffer(uint16_t start)
 {
     uint16_t i,j;
-    
+
     static int32_t temp;
     static int16_t out;
-
-    GPIO_ResetBits(GPIOD, GPIO_Pin_13);
-
+    
+    //GPIO_ResetBits(GPIOD, GPIO_Pin_13);
+    
+    Insert_display_data();
     i = 0;
-
+    
     while(i<AUDIO_BUFFER_LENGTH_HALF)
     {
         out=0;
         
+       
         for(j=0;j<TONEWHEELS;j++)
         {
-            temp = (uint32_t) ((oscillator_y[j] * Multiplier[j])>>15);
-            oscillator_x[j] -= (uint16_t) temp;
-            temp = (uint32_t) (oscillator_x[j] * Multiplier[j])>>15;
-            oscillator_y[j] += (uint16_t) temp;
-            temp = (uint32_t) (oscillator_x[j]*Tonewheel_gain[j])>>10;
-            out += (uint16_t) temp;
+            temp = (255*Tonewheel_gain[j]+Tonewheel_target_gain[j])>>8;
+            Tonewheel_gain[j]= temp;
+            temp = ((oscillator_y[j] * Multiplier[j])>>15);
+            oscillator_x[j] -= temp;
+            temp = (oscillator_x[j] * Multiplier[j])>>15;
+            oscillator_y[j] += temp;
+            temp = (oscillator_x[j]*Tonewheel_gain[j])>>10;
+            out += (int16_t) temp;
         }
+        
+        effect_buffer[effect_index]=out;
+        effect_index++;
+        effect_index &=3;
+
+        //simple low-pass filter
+ 
+        temp = (effect_buffer[0]+effect_buffer[1]+
+                effect_buffer[2]+effect_buffer[3]+
+                effect_buffer[4]+effect_buffer[5]+
+                effect_buffer[6]+effect_buffer[7])>>3;
+
+        out = (int16_t) temp;
+       
 
         audiobuffer[start+i] = out;
         audiobuffer[start+i+1] = out;
@@ -154,7 +238,7 @@ void Generate_buffer(uint16_t start)
 	i = i+2;
     }
 
-    GPIO_SetBits(GPIOD, GPIO_Pin_13);
+    //GPIO_SetBits(GPIOD, GPIO_Pin_13);
 
 }
 

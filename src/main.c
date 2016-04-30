@@ -16,7 +16,7 @@ int main(void)
 
     uint8_t n;
 
-
+    Init_hid();
     Init_misc();
     Init_midi();
     Init_organ();
