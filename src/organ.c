@@ -66,6 +66,10 @@ static int16_t keys_pressed;
 static int32_t percussion_gain,percussion_target_gain;
 static int16_t percussion_index;
 static int8_t percussion_note;
+static float delay_line[32];
+static uint16_t delay_pos;
+static float lfo_position,lfo_increment,lfo_orig_increment;
+static float lfo_treshold;
 
 void Update_display_buffer()
 {
@@ -82,15 +86,24 @@ void Update_display_buffer()
 void Init_organ()
 {
     int i;
+    lfo_position=0;
+    lfo_treshold=24.0f;
+    lfo_orig_increment=lfo_treshold*14.0f/48000.0f;
+    lfo_increment=lfo_orig_increment;
+
     display_buffer[0]=0x80<<7;
     display_buffer[10]=0xc0<<7;
     display_buffer[20]=0x94<<7;
     display_buffer[30]=0xd4<<7;
     display_index=0;
     keys_pressed=0;
+    delay_pos=0;
 
     for (i=0;i<EFFECT_BUFFER_LENGTH;i++)
         effect_buffer[i]=0;
+    
+    for (i=0;i<32;i++)
+        delay_line[i]=0.0f;
 
     effect_index =0;
     percussion_gain=0;
@@ -225,10 +238,10 @@ void Insert_display_data()
 
 void Generate_buffer(uint16_t start)
 {
-    uint16_t i,j;
+    uint16_t i,j,p;
 
-    static float outf;
-
+    static float outf,outf1,outf2,dp;
+    
     static int32_t temp;
     static int32_t out;
     
@@ -244,19 +257,19 @@ void Generate_buffer(uint16_t start)
        
         for(j=0;j<TONEWHEELS;j++)
         {
-            temp = (31*Tonewheel_gain[j]+Tonewheel_target_gain[j])>>5;
+            temp = (127*Tonewheel_gain[j]+Tonewheel_target_gain[j])>>7;
             Tonewheel_gain[j]= temp;
             temp = ((oscillator_y[j] * Multiplier[j])>>15);
             oscillator_x[j] -= temp;
             temp = (oscillator_x[j] * Multiplier[j])>>15;
             oscillator_y[j] += temp;
-            temp = (oscillator_x[j]*Tonewheel_gain[j])>>10;
-            out += temp>>2;
+            temp = (oscillator_x[j]*Tonewheel_gain[j])>>13;
+            out += temp;
         }
         
-        percussion_gain = (31*percussion_gain+percussion_target_gain)>>5;
+        percussion_gain = (127*percussion_gain+percussion_target_gain)>>7;
         temp = (oscillator_x[percussion_index]*percussion_gain)>>18;
-        percussion_target_gain--;
+        percussion_target_gain -= 3;
         if (percussion_target_gain<0)
             percussion_target_gain=0;
         
@@ -266,9 +279,32 @@ void Generate_buffer(uint16_t start)
 
         if((out>30000)||(out<-30000))
             GPIO_SetBits(GPIOD, GPIO_Pin_13);
-            
-        outf = (float) out;
-        outf = outf/60000;
+        
+        lfo_position+=lfo_increment;
+        if(lfo_position>lfo_treshold)
+            lfo_increment=lfo_orig_increment*(-1.0f);
+        else
+            if(lfo_position<0.0f)
+                lfo_increment=lfo_orig_increment;
+
+                
+        outf1 = (float) out;
+        outf1 = 0.000033*outf1;
+
+        delay_line[delay_pos]=outf1;
+        delay_pos++;
+        delay_pos &= 0x1f;
+        p = (uint16_t)lfo_position;
+        dp = lfo_position - (float) p;
+        
+        outf2=(1-dp)*delay_line[((1+delay_pos+p)&0x1f)]+
+                dp*delay_line[((2+delay_pos+p)&0x1f)];
+        //delay line with allpass interpolation filter
+        //outf2=0.15f*(delay_line[((1+delay_pos+di)&0x1f)]-prev_outf2)+
+        //        delay_line[((2+delay_pos+di)&0x1f)];
+        //prev_outf2=outf2;
+
+        outf=0.5*(outf1+outf2);
         out = (int32_t) 30000*outf*(27+outf*outf)/(27+9*outf*outf);
         
         effect_buffer[effect_index]=out;
