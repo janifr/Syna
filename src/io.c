@@ -313,14 +313,14 @@ void Init_misc()
 
 void EVAL_AUDIO_TransferComplete_CallBack(uint32_t pBuffer, uint32_t Size)
 {
-    GPIO_SetBits(GPIOD, GPIO_Pin_12);
+//    GPIO_SetBits(GPIOD, GPIO_Pin_12);
     Generate_buffer(AUDIO_BUFFER_LENGTH_HALF);
 }
 
 void EVAL_AUDIO_HalfTransfer_CallBack(uint32_t pBuffer, uint32_t Size)
 {
-	GPIO_ResetBits(GPIOD, GPIO_Pin_12);
-	Generate_buffer(0);
+//    GPIO_ResetBits(GPIOD, GPIO_Pin_12);
+    Generate_buffer(0);
 }
 
 uint16_t EVAL_AUDIO_GetSampleCallBack(void)

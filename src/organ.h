@@ -20,7 +20,7 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 #define AUDIO_BUFFER_LENGTH_HALF    256
 #define AUDIO_BUFFER_LENGTH         512
 
-#define VOLUME                      85
+#define VOLUME                      80
 //#define MANUAL_KEYS                 61
 #define TONEWHEELS                  91
 

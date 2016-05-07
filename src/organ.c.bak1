@@ -83,20 +83,6 @@ static int16_t Multiplier[TONEWHEELS]={
     0};
 #endif
 
-#if SAMPLERATE == 24000
-static int16_t Multiplier[TONEWHEELS]={
-    280,297,315,334,353,374,397,420,445,472,
-    500,529,561,594,630,667,707,749,794,841,
-    890,944,1000,1059,1122,1188,1260,1334,1414,1497,
-    1587,1681,1780,1887,1999,2117,2243,2376,2519,2668,
-    2827,2994,3173,3361,3560,3773,3996,4232,4484,4750,
-    5034,5332,5648,5981,6338,6714,7109,7533,7977,8447,
-    8947,9474,10038,10628,11254,11912,12617,13357,14133,14965,
-    15835,16754,17726,18750,19840,20976,22174,23428,24762,26153,
-    27601,29140,30732,32394,0,0,0,0,0,0,
-    0};
-#endif
-
 //Gains found from net for RT-2 8:0dB 7:-3 6:-6 5:-10 4:-15 3:-20 2:-26 1:-32
 //Use >>10
 static int32_t Drawbar_gain[9]={
@@ -127,7 +113,7 @@ static int32_t oscillator_y[TONEWHEELS];
 static uint16_t display_buffer[84];
 static uint16_t display_index;
 
-#define EFFECT_BUFFER_LENGTH 8
+#define EFFECT_BUFFER_LENGTH 4
 
 static int16_t effect_buffer[EFFECT_BUFFER_LENGTH];
 static uint16_t effect_index;
@@ -221,7 +207,7 @@ void Init_organ()
 
 void Organ_noteon(uint8_t note)
 {
-    int16_t tmp,mult,shift,i;
+    int16_t tmp,i;
     
     
     //GPIO_SetBits(GPIOD, GPIO_Pin_15); 
@@ -264,23 +250,12 @@ void Organ_noteon(uint8_t note)
 
         for (i=0;i<9;i++)
         {
-            mult=1;
-            shift=0;
             tmp=Drawbar_harmonic[i]+note-24;
             while (tmp<0)
-            {
-                mult *= 3;
-                shift++;
                 tmp += 12;
-            }
             while (tmp>(TONEWHEELS-1))
-            {
-                mult *= 3;
-                shift++;
                 tmp -= 12;
-            }
-            Tonewheel_target_gain[tmp] +=
-                (mult*Drawbar_gain[Drawbar_setting[i]])>>shift;
+            Tonewheel_target_gain[tmp] += Drawbar_gain[Drawbar_setting[i]];
             Tonewheel_gain[tmp] += Tonewheel_target_gain[tmp]>>2;
         }
     }
@@ -299,7 +274,7 @@ void Organ_noteon(uint8_t note)
 
 void Organ_noteoff(uint8_t note)
 {
-    int16_t tmp,i,j,mult,shift;
+    int16_t tmp,i,j;
 
     //GPIO_ResetBits(GPIOD, GPIO_Pin_15);
     
@@ -317,23 +292,12 @@ void Organ_noteoff(uint8_t note)
 
         for (i=0;i<9;i++)
         {
-            mult=1;
-            shift=0;
             tmp=Drawbar_harmonic[i]+note-24;
             while (tmp<0)
-            {
-                mult *= 3;
-                shift++;
                 tmp += 12;
-            }
             while (tmp>(TONEWHEELS-1))
-            {
-                mult *= 3;
-                shift++;
                 tmp -= 12;
-            }
-            Tonewheel_target_gain[tmp] -= 
-                (mult*Drawbar_gain[Drawbar_setting[i]])>>shift;
+            Tonewheel_target_gain[tmp] -= Drawbar_gain[Drawbar_setting[i]];
             if (Tonewheel_target_gain[tmp]<0)
                 Tonewheel_target_gain[tmp]=0;
         }
@@ -367,7 +331,6 @@ void Generate_buffer(uint16_t start)
     static int32_t temp,cmp;
     static int32_t out,out2;
     static int32_t oscx,oscy;
-//    static int32_t test=0,test2=0;
 
     //GPIO_ResetBits(GPIOD, GPIO_Pin_13);
     
@@ -403,15 +366,7 @@ void Generate_buffer(uint16_t start)
             temp = (oscillator_x[j]*Tonewheel_gain[j])>>13;
             out += temp;
             
-  //          test += 2;
-  //          test &= 0x7f;
-  //          out=100*(((511*test2+test)>>9)-0x40);
-  //          test2=test;
-            //if (test&0x40)
-            //    out=100*(0x20-((127*test2+test)>>7));
-            //else
-            //    out=100*(((127*test2+test)>>7)-0x20);    
-            //test2=test;
+
             //__asm volatile("smmla %0, %1, %2, %3" : "=r" (out) : "r" (oscillator_x[j]<<7), "r" (Tonewheel_gain[j]), "r" (out) );
 
 //            if (Percussion_tonewheel[j])
@@ -468,7 +423,11 @@ void Generate_buffer(uint16_t start)
         
         outf2=(1-dp)*delay_line[((1+delay_pos+p)&0x1f)]+
                 dp*delay_line[((2+delay_pos+p)&0x1f)];
-        //outf=0.5*outf1;
+        //delay line with allpass interpolation filter
+        //outf2=0.15f*(delay_line[((1+delay_pos+di)&0x1f)]-prev_outf2)+
+        //        delay_line[((2+delay_pos+di)&0x1f)];
+        //prev_outf2=outf2;
+
         outf=0.4*(outf1+outf2+outf3);
         GPIO_ResetBits(GPIOD, GPIO_Pin_13);
         
@@ -479,14 +438,14 @@ void Generate_buffer(uint16_t start)
         
         effect_buffer[effect_index]=out;
         effect_index++;
-        effect_index &=7;
+        effect_index &=2;
         
         //simple low-pass filter
  
         temp = (effect_buffer[0]+effect_buffer[1]+
-                effect_buffer[2]+effect_buffer[3]+
-                effect_buffer[4]+effect_buffer[5]+
-                effect_buffer[6]+effect_buffer[7])>>3;
+                effect_buffer[2]+effect_buffer[3])>>2;//+
+                //effect_buffer[4]+effect_buffer[5]+
+                //effect_buffer[6]+effect_buffer[7])>>3;
 
         out = temp;
 

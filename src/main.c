@@ -39,7 +39,9 @@ int main(void)
     Init_midi();
     Init_organ();
 
-    EVAL_AUDIO_Init(OUTPUT_DEVICE_AUTO, VOLUME, SAMPLERATE);
+    if(EVAL_AUDIO_Init(OUTPUT_DEVICE_AUTO, VOLUME, 36000))
+        while(1){}
+
     EVAL_AUDIO_Play((uint16_t*)audiobuffer, AUDIO_BUFFER_LENGTH);
     
     while(1)
