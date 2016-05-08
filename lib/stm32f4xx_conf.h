@@ -61,7 +61,7 @@
 /* If an external clock source is used, then the value of the following define 
    should be set to the value of the external clock source, else, if no external 
    clock is used, keep this define commented */
-/*#define I2S_EXTERNAL_CLOCK_VAL   12288000 */ /* Value of the external clock in Hz */
+/*#define I2S_EXTERNAL_CLOCK_VAL   12288000*/ /* Value of the external clock in Hz */
 
 
 /* Uncomment the line below to expanse the "assert_param" macro in the 

@@ -110,7 +110,7 @@
 /* Uncomment the defines below to select if the Master clock mode should be 
   enabled or not */
 #define CODEC_MCLK_ENABLED
-/* #deine CODEC_MCLK_DISABLED */
+/*#define CODEC_MCLK_DISABLED*/ 
 
 /* Uncomment this line to enable verifying data sent to codec after each write 
   operation */
