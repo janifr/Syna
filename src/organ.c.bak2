@@ -18,7 +18,6 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 // Copyright 2016 Jani Frilander
 
-#include <stdio.h>
 #include "stm32f4xx.h"
 #include "stm32f4xx_conf.h"
 
@@ -116,17 +115,16 @@ static int32_t Drawbar_gain[9]={
 static int16_t Drawbar_harmonic[9]={
     -12,7,0,12,19,24,28,31,36};
 
-static int32_t Keyclick_gain[TONEWHEELS];
-static int32_t Keyclick_target_gain[TONEWHEELS];
-//static uint8_t Keyclick_tonewheel[8];
-//static int32_t Keyclick_index;
+static int32_t Keyclick_gain[8];
+static int32_t Keyclick_target_gain[8];
+static uint8_t Keyclick_tonewheel[8];
+static int32_t Keyclick_index;
 static int32_t Tonewheel_gain[TONEWHEELS];
 static int32_t Tonewheel_target_gain[TONEWHEELS];
-static int8_t Tonewheel_active[TONEWHEELS];
-static int32_t Percussion_gain[TONEWHEELS];
-static int32_t Percussion_target_gain[TONEWHEELS];
-//static int32_t Percussion_tonewheel[8];
-//static int32_t Percussion_index;
+static int32_t Percussion_gain[8];
+static int32_t Percussion_target_gain[8];
+static int32_t Percussion_tonewheel[8];
+static int32_t Percussion_index;
 static int32_t Percussion_global_target_gain;
 static int16_t Drawbar_setting[9];
 
@@ -216,19 +214,25 @@ void Init_organ()
     {
         Percussion_gain[i]=0;
         Percussion_target_gain[i]=0;
-        //Percussion_tonewheel[i]=0;
+        Percussion_tonewheel[i]=0;
     }
-    //Percussion_index=0;
+    Percussion_index=0;
     
+    for(i=0;i<8;i++)
+    {
+        Keyclick_gain[i]=0;
+        Keyclick_target_gain[i]=0;
+        Keyclick_tonewheel[i]=0;
+    }
+    Keyclick_index=0;
+
+        
     for(i=0;i<TONEWHEELS;i++)
     {
         oscillator_x[i]=0; // Tonewheels are synced. Not real situation.
         oscillator_y[i]=16384; //1024
         Tonewheel_gain[i]=0;
         Tonewheel_target_gain[i]=0;
-        Keyclick_gain[i]=0;
-        Keyclick_target_gain[i]=0;
-        Tonewheel_active[i]=0;
         //Percussion_gain[i]=0;
         //Percussion_target_gain[i]=0;
         //Percussion_tonewheel[i]=0;
@@ -271,12 +275,11 @@ void Organ_noteon(uint8_t note)
         tmp=Drawbar_harmonic[3]+note-24;
         if (tmp<TONEWHEELS)
         {
-            Percussion_target_gain[tmp]=
+            Percussion_target_gain[Percussion_index]=
                 Percussion_global_target_gain;
-            Tonewheel_active[tmp]=1;
-            //Percussion_tonewheel[Percussion_index]=tmp;
-            //Percussion_index++;
-            //Percussion_index &= 0x7;
+            Percussion_tonewheel[Percussion_index]=tmp;
+            Percussion_index++;
+            Percussion_index &= 0x7;
         }
 
         for (i=0;i<9;i++)
@@ -304,11 +307,11 @@ void Organ_noteon(uint8_t note)
                         Delayed_index++;
                         Delayed_tonewheel[1]=-1;
                     case (DELAYEDGAIN):*/
-                Keyclick_target_gain[tmp]=Drawbar_gain[8];
-                //Keyclick_tonewheel[Keyclick_index]=tmp;
-                //Keyclick_index++;
-                //Keyclick_index &=0x7;
-                Tonewheel_active[tmp]=1;
+                Keyclick_target_gain[Keyclick_index]=Drawbar_gain[8];
+                Keyclick_tonewheel[Keyclick_index]=tmp;
+                Keyclick_index++;
+                Keyclick_index &=0x7;
+
  
                         Tonewheel_target_gain[tmp] +=
                             (mult*Drawbar_gain[Drawbar_setting[i]])>>shift;
@@ -348,7 +351,11 @@ void Organ_noteoff(uint8_t note)
         tmp=Drawbar_harmonic[3]+note-24;
         if (tmp<TONEWHEELS)
         {
-            Percussion_target_gain[tmp]=0;
+            for (j=0;j<8;j++)
+            {
+                if(tmp==Percussion_tonewheel[j])
+                    Percussion_target_gain[j]=0;
+            }
         }
 
         for (i=0;i<9;i++)
@@ -399,75 +406,118 @@ void Generate_buffer(uint16_t start)
 {
     uint16_t i,j,p;
 
-    //static int32_t tim;
-    uint8_t buf[8];
     static float outf,outf1,outf2,outf3,dp; 
     static int32_t temp,cmp;
     static int32_t out,out2;
     static int32_t oscx,oscy;
-    static int32_t klick; 
-    static int32_t upper_manual_buffer[(AUDIO_BUFFER_LENGTH_HALF>>1)];
-    static int32_t lower_manual_buffer[(AUDIO_BUFFER_LENGTH_HALF>>1)];
-    static int32_t percussion_buffer[(AUDIO_BUFFER_LENGTH_HALF>>1)];
-    uint32_t rnd=22222;
 
-    //tim=SysTick->VAL;
+    uint32_t rnd=22222;
 
 //    static int32_t test=0,test2=0;
 
-    GPIO_ResetBits(GPIOD, GPIO_Pin_12);
+    //GPIO_ResetBits(GPIOD, GPIO_Pin_13);
     
     Insert_display_data();
-//    i = 0;
-    for(i=0;i<(AUDIO_BUFFER_LENGTH_HALF>>1);i++)
-    {
-        upper_manual_buffer[i]=0;
-        lower_manual_buffer[i]=0;
-        percussion_buffer[i]=0;
-    }
-    GPIO_ResetBits(GPIOD, GPIO_Pin_14);
-    for(j=0;j<TONEWHEELS;j++)
-    {
-        if (Tonewheel_active[j])
-        {
-            GPIO_SetBits(GPIOD, GPIO_Pin_14);
-            for(i=0;i<(AUDIO_BUFFER_LENGTH_HALF>>1);i++)
-            {
-                temp = (127*Percussion_gain[j]+Percussion_target_gain[j])>>7;
-                Percussion_gain[j] =temp;
-                temp = (127*Tonewheel_gain[j]+Tonewheel_target_gain[j])>>7;
-                Tonewheel_gain[j]= temp;
-                temp = ((oscillator_y[j] * Multiplier[j])>>15);
-                oscillator_x[j] -= temp;
-                temp = (oscillator_x[j] * Multiplier[j])>>15;
-                oscillator_y[j] += temp;
-                temp = (oscillator_x[j]*(Tonewheel_gain[j]))>>13;
-                upper_manual_buffer[i] = upper_manual_buffer[i]+temp;
-                temp = (oscillator_x[j]*(Percussion_gain[j]>>4))>>13;
-                percussion_buffer[i]= percussion_buffer[i]+temp;
-                //manual2[i] = manual2[i]+(temp>>2);
-                Percussion_target_gain[j]=(16383*Percussion_target_gain[j]>>14);
-            }
-        }
-        else
-        {
-            for(i=0;i<(AUDIO_BUFFER_LENGTH_HALF>>1);i++)
-            {
-                temp = ((oscillator_y[j] * Multiplier[j])>>15);
-                oscillator_x[j] -= temp;
-                temp = (oscillator_x[j] * Multiplier[j])>>15;
-                oscillator_y[j] += temp;
-            }
-        }
-        if((Tonewheel_gain[j]==0)&&(Percussion_gain[j]==0)&&
-            (Tonewheel_target_gain[j]==0)&&(Percussion_target_gain[j]==0))
-            Tonewheel_active[j]=0;
-    }
+    i = 0;
 
-    for(i=0;i<(AUDIO_BUFFER_LENGTH_HALF>>1);i++)
+    GPIO_ResetBits(GPIOD, GPIO_Pin_12); 
+    while(i<AUDIO_BUFFER_LENGTH_HALF)
     {
-        Percussion_global_target_gain=
-            (16383*Percussion_global_target_gain>>14);
+        out=0;
+        out2=0; 
+//        outf1=0.0f;
+//        outf3=0.0f;
+        //Percussion_global_gain=(127*Percussion_global_gain+
+        //        Percussion_global_target_gain)>>7;
+        Percussion_global_target_gain=(16383*Percussion_global_target_gain>>14);
+        
+        
+        for(j=0;j<8;j++)
+        {
+            rnd = rnd*196314165+907633515;
+            Keyclick_gain[j]=(7*Keyclick_gain[j]+Keyclick_target_gain[j])>>3;
+            Tonewheel_gain[Keyclick_tonewheel[j]] +=
+                (Keyclick_gain[j]*(rnd&0xfff))>>16;
+            Keyclick_target_gain[j]=(127*Keyclick_target_gain[j]>>7);
+        }
+
+            
+        // j=21 min with asm smmla
+        // j=5 min wih old system
+        // j=12 min float j=7 with temp float
+        
+        for(j=0;j<TONEWHEELS;j++)
+        {
+            temp = (127*Tonewheel_gain[j]+Tonewheel_target_gain[j])>>7;
+            Tonewheel_gain[j]= temp;
+        //    temp= Multiplier[j]<<8;
+            //__asm volatile("smmls %0, %1, %2, %3" : "=r" (oscillator_x[j]) : "r" (oscillator_y[j]<<9), "r" (temp), "r" (oscillator_x[j]) );
+            //__asm volatile("smmla %0, %1, %2, %3" : "=r" (oscillator_y[j]) : "r" (oscillator_x[j]<<9), "r" (temp), "r" (oscillator_y[j]) );
+            temp = ((oscillator_y[j] * Multiplier[j])>>15);
+            oscillator_x[j] -= temp;
+            temp = (oscillator_x[j] * Multiplier[j])>>15;
+            oscillator_y[j] += temp;
+            temp = (oscillator_x[j]*Tonewheel_gain[j])>>13;
+            out += temp;
+            
+  //          test += 2;
+  //          test &= 0x7f;
+  //          out=100*(((511*test2+test)>>9)-0x40);
+  //          test2=test;
+            //if (test&0x40)
+            //    out=100*(0x20-((127*test2+test)>>7));
+            //else
+            //    out=100*(((127*test2+test)>>7)-0x20);    
+            //test2=test;
+            //__asm volatile("smmla %0, %1, %2, %3" : "=r" (out) : "r" (oscillator_x[j]<<7), "r" (Tonewheel_gain[j]), "r" (out) );
+
+//            if (Percussion_tonewheel[j])
+//            {
+//            temp = (127*Percussion_gain[j]+Percussion_target_gain[j])>>7;
+//            Percussion_gain[j]=temp;
+//            Percussion_target_gain[j]=(16383*Percussion_target_gain[j]>>14);
+//                temp = (oscillator_x[j]*Percussion_gain[j])>>15;
+//                out2 += temp;
+                // __asm volatile("smmla %0, %1, %2, %3" : "=r" (out2) : "r" (oscillator_x[j]<<7), "r" (Percussion_global_gain), "r" (out2) );
+//            }
+
+
+        }
+       
+        for(j=0;j<8;j++)
+        {
+            temp = (127*Percussion_gain[j]+Percussion_target_gain[j])>>7;
+            Percussion_gain[j]=temp;
+            Percussion_target_gain[j]=(16383*Percussion_target_gain[j]>>14);
+            temp = (oscillator_x[Percussion_tonewheel[j]]*
+                    Percussion_gain[j])>>16;
+            out2 += temp;
+        }
+
+        //percussion_gain = (126*percussion_gain+percussion_target_gain)>>7;
+       // percussion_gain -= 4
+       // if (Percussion_global_target_gain<0)
+       //     Percussion_global_target_gain=0;
+        
+        //out += temp;
+
+/*        GPIO_ResetBits(GPIOD, GPIO_Pin_13);
+        
+        if(oscillatorf_y[4]>16300.0f)
+            GPIO_SetBits(GPIOD, GPIO_Pin_13);*/
+       
+        /*if(Delayed_index>-1)
+        {
+            Delayed_index--;
+            if(Delayed_index>-1)
+            {
+                Tonewheel_target_gain[Delayed_tonewheel[Delayed_index]]=
+                    Delayed_target_gain[Delayed_index];
+                Tonewheel_gain[Delayed_tonewheel[Delayed_index]] += 
+                    Tonewheel_target_gain[Delayed_tonewheel[Delayed_index]]>>2;
+            }
+        }*/
+        
         lfo_position+=lfo_increment;
         if(lfo_position>lfo_treshold)
             lfo_increment=lfo_orig_increment*(-1.0f);
@@ -475,10 +525,10 @@ void Generate_buffer(uint16_t start)
             if(lfo_position<0.0f)
                 lfo_increment=lfo_orig_increment;
 
-        outf1 = (float) upper_manual_buffer[i];
-        outf1 = 0.000025*outf1;                
-        outf3 = (float) percussion_buffer[i];
-        outf3 = 0.000025*outf3;
+        outf3 = (float) out2;
+        outf3 = 0.000033*outf3;                
+        outf1 = (float) out;
+        outf1 = 0.000033*outf1;
 
         delay_line[delay_pos]=outf1;
         delay_pos++;
@@ -490,9 +540,6 @@ void Generate_buffer(uint16_t start)
                 dp*delay_line[((2+delay_pos+p)&0x1f)];
         //outf=0.5*outf1;
         outf=0.4*(outf1+outf2+outf3);
-        
-        //temp=manual1[i]+manual2[i];
-        //outf=0.000033*(float)temp;
         GPIO_ResetBits(GPIOD, GPIO_Pin_13);
         
         if((outf>0.9f)||(outf<-0.9f))
@@ -500,25 +547,25 @@ void Generate_buffer(uint16_t start)
  
         out = (int32_t) 30000*outf*(27+outf*outf)/(27+9*outf*outf);
         
-        /*effect_buffer[effect_index]=out;
+        effect_buffer[effect_index]=out;
         effect_index++;
-        effect_index &=3;*/
+        effect_index &=3;
         
         //simple low-pass filter
  
-        //temp = (effect_buffer[0]+effect_buffer[1]+
-        //        effect_buffer[2]+effect_buffer[3])>>2;//+
+        temp = (effect_buffer[0]+effect_buffer[1]+
+                effect_buffer[2]+effect_buffer[3])>>2;//+
                 //effect_buffer[4]+effect_buffer[5]+
                 //effect_buffer[6]+effect_buffer[7])>>3;
 
-        //out = temp;
+        out = temp;
 
-        audiobuffer[start+(i<<1)] = (int16_t) out;
-        audiobuffer[start+(i<<1)+1] = (int16_t) out;
+        audiobuffer[start+i] = (int16_t) out;
+        audiobuffer[start+i+1] = (int16_t) out;
 
 
-	//i = i+2;
-        /*if(sample_index>1000000)
+	i = i+2;
+        if(sample_index>1000000)
         {
             if (cmp)
             {
@@ -546,8 +593,10 @@ void Generate_buffer(uint16_t start)
         {
             sample_index++;
             cmp=1;
-        }*/
+        }
     }
     GPIO_SetBits(GPIOD, GPIO_Pin_12);
+    //GPIO_SetBits(GPIOD, GPIO_Pin_13);
+
 }
 

@@ -16,7 +16,7 @@ You should have received a copy of the GNU General Public License
 along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
-#define SAMPLERATE                  42000
+#define SAMPLERATE                  48000
 #define AUDIO_BUFFER_LENGTH_HALF    256
 #define AUDIO_BUFFER_LENGTH         512
 
