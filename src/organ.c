@@ -28,9 +28,6 @@ along with this program. If not, see <http://www.gnu.org/licenses/>.
 extern uint8_t Barchartcoarse[];
 
 #define DELAYEDGAIN 16
-//uint16_t Delayed_tonewheel[DELAYEDGAIN];
-//uint32_t Delayed_target_gain[DELAYEDGAIN];
-//int16_t Delayed_index;
 
 //y=16384
 
@@ -116,18 +113,13 @@ static int32_t Drawbar_gain[9]={
 static int16_t Drawbar_harmonic[9]={
     -12,7,0,12,19,24,28,31,36};
 
-static int32_t Keyclick_gain[TONEWHEELS];
-static int32_t Keyclick_target_gain[TONEWHEELS];
-//static uint8_t Keyclick_tonewheel[8];
-//static int32_t Keyclick_index;
+static int32_t Keyclick_gain[2]; //one for each manual
 static int32_t Tonewheel_gain[TONEWHEELS];
 static int32_t Tonewheel_target_gain[TONEWHEELS];
 static int8_t Tonewheel_active[TONEWHEELS];
 static int8_t Percussion_harmonic;
 static int32_t Percussion_gain[TONEWHEELS];
 static int32_t Percussion_target_gain[TONEWHEELS];
-//static int32_t Percussion_tonewheel[8];
-//static int32_t Percussion_index;
 static int32_t Percussion_global_target_gain;
 static int16_t Drawbar_setting[9];
 
@@ -140,10 +132,10 @@ static int32_t oscillator_y[TONEWHEELS];
 static uint16_t display_buffer[84];
 static uint16_t display_index;
 
-#define EFFECT_BUFFER_LENGTH 8
+#define LOWPASS_BUFFER_LENGTH 4
 
-static int16_t effect_buffer[EFFECT_BUFFER_LENGTH];
-static uint16_t effect_index;
+static int16_t lowpass_buffer[LOWPASS_BUFFER_LENGTH];
+static uint16_t lowpass_index;
 
 static int16_t keys_pressed;
 static float delay_line[32];
@@ -169,7 +161,8 @@ void Update_display_buffer()
 void Init_organ()
 {
     int i;
-//    Delayed_index=-1;
+    Keyclick_gain[0]=0;
+    Keyclick_gain[1]=0;
     stability_index=0;
     Percussion_harmonic=3;
     sample_index=0;
@@ -189,13 +182,13 @@ void Init_organ()
     keys_pressed=0;
     delay_pos=0;
 
-    for (i=0;i<EFFECT_BUFFER_LENGTH;i++)
-        effect_buffer[i]=0;
+    for (i=0;i<LOWPASS_BUFFER_LENGTH;i++)
+        lowpass_buffer[i]=0;
     
     for (i=0;i<32;i++)
         delay_line[i]=0.0f;
 
-    effect_index =0;
+    lowpass_index =0;
     Percussion_global_target_gain=0;
     drawbarstate = 0;
     drawbarindex = 0;
@@ -218,9 +211,7 @@ void Init_organ()
     {
         Percussion_gain[i]=0;
         Percussion_target_gain[i]=0;
-        //Percussion_tonewheel[i]=0;
     }
-    //Percussion_index=0;
     
     for(i=0;i<TONEWHEELS;i++)
     {
@@ -228,12 +219,7 @@ void Init_organ()
         oscillator_y[i]=16384; //1024
         Tonewheel_gain[i]=0;
         Tonewheel_target_gain[i]=0;
-        Keyclick_gain[i]=0;
-        Keyclick_target_gain[i]=0;
         Tonewheel_active[i]=0;
-        //Percussion_gain[i]=0;
-        //Percussion_target_gain[i]=0;
-        //Percussion_tonewheel[i]=0;
     }
 }
 
@@ -269,16 +255,15 @@ void Organ_noteon(uint8_t note)
         {//use index 3 for 2nd and 4 for 3rd setting
             Percussion_global_target_gain=Drawbar_gain[8]<<4;
         }
-        
+
+        Keyclick_gain[0]=Drawbar_gain[8]<<4;
+
         tmp=Drawbar_harmonic[Percussion_harmonic]+note-24;
         if (tmp<TONEWHEELS)
         {
             Percussion_target_gain[tmp]=
                 Percussion_global_target_gain;
             Tonewheel_active[tmp]=1;
-            //Percussion_tonewheel[Percussion_index]=tmp;
-            //Percussion_index++;
-            //Percussion_index &= 0x7;
         }
 
         for (i=0;i<9;i++)
@@ -288,68 +273,43 @@ void Organ_noteon(uint8_t note)
                 mult=1;
                 shift=0;
                 tmp=Drawbar_harmonic[i]+note-24;
-                while (tmp<0)
+                while (tmp<0)//foldback
                 {
                     mult *= 3;
-                    shift++;
+                    shift +=2;
                     tmp += 12;
                 }
                 while (tmp>(TONEWHEELS-1))
                 {
                     mult *= 3;
-                    shift++;
+                    shift +=2;
                     tmp -= 12;
                 }
-                /*switch (Delayed_index)
-                {
-                    case -1:
-                        Delayed_index++;
-                        Delayed_tonewheel[1]=-1;
-                    case (DELAYEDGAIN):*/
-                //Keyclick_target_gain[tmp]=Drawbar_gain[8];
-                //Keyclick_tonewheel[Keyclick_index]=tmp;
-                //Keyclick_index++;
-                //Keyclick_index &=0x7;
                 Tonewheel_active[tmp]=1;
  
                 Tonewheel_target_gain[tmp] +=
                     ((mult*Drawbar_gain[Drawbar_setting[i]])>>shift)<<4;
-                //Tonewheel_gain[tmp]=Tonewheel_target_gain[tmp]>>2;
-                /*if((tmp+13)<TONEWHEELS){
-                Tonewheel_gain[tmp+13]+=Tonewheel_target_gain[tmp]>>4;
-                Tonewheel_gain[tmp+12]+=Tonewheel_target_gain[tmp]>>4;
-                Tonewheel_gain[tmp+11]+=Tonewheel_target_gain[tmp]>>4;
-                Tonewheel_gain[tmp+10]+=Tonewheel_target_gain[tmp]>>4;}*/
-                tmp2=tmp+12;
+                
+                tmp2=tmp+12;//Keyclick harmonics
                 if(tmp2<TONEWHEELS)
                 {
                     Tonewheel_gain[tmp2]+=Tonewheel_target_gain[tmp]>>3;
                     Tonewheel_active[tmp2]=1;
-                    tmp2 =tmp+12;
+                    tmp2 =tmp+19;
                         if(tmp2<TONEWHEELS)
                         {
                             Tonewheel_gain[tmp2]+=
                                 Tonewheel_target_gain[tmp]>>3;
                             Tonewheel_active[tmp2]=1;
-                        tmp2=tmp+19;
-                        if(tmp2<TONEWHEELS)
-                        {
-                            Tonewheel_gain[tmp2]+=
-                                Tonewheel_target_gain[tmp]>>3;
-                            Tonewheel_active[tmp2]=1;
-                        }
+                        tmp2=tmp+24;
+                            if(tmp2<TONEWHEELS)
+                            {
+                                Tonewheel_gain[tmp2]+=
+                                    Tonewheel_target_gain[tmp]>>3;
+                                Tonewheel_active[tmp2]=1;
+                            }
                         }
                 }
-
-                        //Tonewheel_gain[tmp] += Tonewheel_target_gain[tmp]>>2;
-                        /*break;
-                    default:
-                        Delayed_target_gain[Delayed_index]=
-                            Tonewheel_target_gain[tmp]+
-                            ((mult*Drawbar_gain[Drawbar_setting[i]])>>shift);
-                        Delayed_tonewheel[Delayed_index]=tmp;
-                        Delayed_index++;
-                }*/
             }
         }
     }
@@ -369,7 +329,6 @@ void Organ_noteon(uint8_t note)
 void Organ_noteoff(uint8_t note)
 {
     int16_t tmp,i,j,mult,shift;
-
     //GPIO_ResetBits(GPIOD, GPIO_Pin_15);
     
     if ((note>23) && (note<97))
@@ -388,13 +347,13 @@ void Organ_noteoff(uint8_t note)
             while (tmp<0)
             {
                 mult *= 3;
-                shift++;
+                shift+=2;
                 tmp += 12;
             }
             while (tmp>(TONEWHEELS-1))
             {
                 mult *= 3;
-                shift++;
+                shift+=2;
                 tmp -= 12;
             }
             Tonewheel_target_gain[tmp] -= 
@@ -434,11 +393,11 @@ void Generate_buffer(uint16_t start)
     static int32_t temp,cmp;
     static int32_t out,out2;
     static int32_t oscx,oscy;
-    static int32_t klick; 
+    //static int32_t klick; 
     static int32_t upper_manual_buffer[(AUDIO_BUFFER_LENGTH_HALF>>1)];
     static int32_t lower_manual_buffer[(AUDIO_BUFFER_LENGTH_HALF>>1)];
     static int32_t percussion_buffer[(AUDIO_BUFFER_LENGTH_HALF>>1)];
-    uint32_t rnd=22222;
+    static int32_t rnd=22222;
 
     //tim=SysTick->VAL;
 
@@ -492,6 +451,15 @@ void Generate_buffer(uint16_t start)
             (Tonewheel_target_gain[j]==0)&&(Percussion_target_gain[j]==0))
             Tonewheel_active[j]=0;
     }
+    
+    if (Keyclick_gain[0]>0)
+        for(i=0;i<(AUDIO_BUFFER_LENGTH_HALF>>1);i++)
+        {
+            rnd = rnd*196314165+907633515;
+            temp = (127*Keyclick_gain[0])>>7;
+            Keyclick_gain[0]=temp;
+            upper_manual_buffer[i] += (rnd&0xffff)*temp>>20;
+        }
 
     for(i=0;i<(AUDIO_BUFFER_LENGTH_HALF>>1);i++)
     {
@@ -529,18 +497,18 @@ void Generate_buffer(uint16_t start)
  
         out = (int32_t) 30000*outf*(27+outf*outf)/(27+9*outf*outf);
         
-        /*effect_buffer[effect_index]=out;
-        effect_index++;
-        effect_index &=3;*/
+        lowpass_buffer[lowpass_index]=out;
+        lowpass_index++;
+        lowpass_index &=3;
         
         //simple low-pass filter
  
-        //temp = (effect_buffer[0]+effect_buffer[1]+
-        //        effect_buffer[2]+effect_buffer[3])>>2;//+
-                //effect_buffer[4]+effect_buffer[5]+
-                //effect_buffer[6]+effect_buffer[7])>>3;
+        temp = (lowpass_buffer[0]+lowpass_buffer[1]+
+                lowpass_buffer[2]+lowpass_buffer[3])>>2;//+
+                //lowpass_buffer[4]+lowpass_buffer[5]+
+                //lowpass_buffer[6]+lowpass_buffer[7])>>3;
 
-        //out = temp;
+        out = temp;
 
         audiobuffer[start+(i<<1)] = (int16_t) out;
         audiobuffer[start+(i<<1)+1] = (int16_t) out;
